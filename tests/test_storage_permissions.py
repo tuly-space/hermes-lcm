@@ -530,3 +530,48 @@ def test_timestamped_backup_flush_failure_leaves_no_empty_artifact(tmp_path, mon
         assert list(backup_dir.glob("*.sqlite3")) == []
     finally:
         store.close()
+
+
+def _posix_locks_held_on(paths: list[Path]) -> int:
+    inodes = {p.stat().st_ino for p in paths if p.exists()}
+    pid = f" {os.getpid()} "
+    held = 0
+    with open("/proc/locks", encoding="ascii") as locks:
+        for line in locks:
+            fields = line.split()
+            if pid in line and len(fields) > 5 and int(fields[5].rsplit(":", 1)[-1]) in inodes:
+                held += 1
+    return held
+
+
+@pytest.mark.skipif(not Path("/proc/locks").exists(), reason="requires Linux /proc/locks")
+@pytest.mark.parametrize("journal_mode", ["wal", "delete"])
+def test_reopening_store_keeps_live_connection_posix_locks(tmp_path, journal_mode):
+    """Permission tightening must never close a read/write fd on a locked DB.
+
+    POSIX record locks are per (process, inode); closing any descriptor for
+    the inode releases the live connection's locks and lets another process
+    write concurrently, which corrupts the database.
+    """
+    db_path = tmp_path / "lcm.db"
+    _seed_searchable_store(db_path)
+    holder = sqlite3.connect(str(db_path))
+    try:
+        holder.execute(f"PRAGMA journal_mode={journal_mode}")
+        holder.execute("BEGIN IMMEDIATE")
+        holder.execute(
+            "INSERT INTO messages(session_id, role, content, timestamp) "
+            "VALUES ('lock', 'user', 'x', 0)"
+        )
+        artifacts = _sqlite_artifacts(db_path)
+        before = _posix_locks_held_on(artifacts)
+        assert before > 0
+
+        sqlite_util_module._restrict_existing_sqlite_artifacts(db_path)
+        sqlite_util_module._prepare_private_sqlite_file(db_path)
+
+        assert _posix_locks_held_on(artifacts) == before
+        _assert_private_sqlite_artifacts(db_path)
+    finally:
+        holder.rollback()
+        holder.close()

@@ -21,6 +21,23 @@ from typing import Iterator, List
 _SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm", "-journal")
 
 
+def _probe_o_path_permissions() -> bool:
+    """Return True when chmod through an O_PATH /proc fd link works here."""
+    if not hasattr(os, "O_PATH") or not os.path.isdir("/proc/self/fd"):
+        return False
+    try:
+        fd = os.open("/proc/self/fd", os.O_PATH | getattr(os, "O_CLOEXEC", 0))
+    except OSError:
+        return False
+    try:
+        return os.path.exists(f"/proc/self/fd/{fd}")
+    finally:
+        os.close(fd)
+
+
+_O_PATH_PERMISSIONS_SUPPORTED = _probe_o_path_permissions()
+
+
 def _sqlite_artifact_error(path: Path, reason: str) -> OSError:
     return OSError(errno.EPERM, f"refusing SQLite artifact {path.name!r}: {reason}", str(path))
 
@@ -80,8 +97,20 @@ def _chmod_sqlite_artifact_at(
     if expected is not None:
         _validate_sqlite_artifact(path, expected)
 
-    flags = os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    flags |= getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+    # POSIX advisory locks belong to the (process, inode) pair: closing ANY
+    # read/write descriptor for an inode drops every lock this process holds
+    # on it, including the locks of a live SQLite connection. That silently
+    # disables SQLite's concurrency control and can corrupt the database
+    # (https://sqlite.org/howtocorrupt.html section 2.2). Existing artifacts
+    # are therefore inspected and chmod-ed through an O_PATH descriptor,
+    # whose close does not release record locks. Only a brand-new file,
+    # which no SQLite connection can be locking yet, uses an O_RDWR create.
+    path_only = expected is not None and _O_PATH_PERMISSIONS_SUPPORTED
+    if path_only:
+        flags = os.O_PATH | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    else:
+        flags = os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        flags |= getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
     if expected is None:
         flags |= os.O_CREAT | os.O_EXCL
     try:
@@ -109,7 +138,12 @@ def _chmod_sqlite_artifact_at(
             _require_sqlite_artifact_absent(path, directory_fd=directory_fd)
             return False
         _validate_sqlite_artifact(path, opened)
-        os.fchmod(fd, 0o600)
+        if path_only:
+            # fchmod() is invalid on O_PATH descriptors; the magic link
+            # re-targets the same verified inode without following a name.
+            os.chmod(f"/proc/self/fd/{fd}", 0o600)
+        else:
+            os.fchmod(fd, 0o600)
         restricted = os.fstat(fd)
         if restricted.st_nlink == 0 and allow_sidecar_disappearance:
             _require_sqlite_artifact_absent(path, directory_fd=directory_fd)
