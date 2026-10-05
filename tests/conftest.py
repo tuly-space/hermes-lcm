@@ -3,6 +3,7 @@
 Patches the plugin modules so they can be imported both as a package
 (relative imports during plugin loading) and directly during testing.
 """
+import os
 import sys
 import importlib
 from pathlib import Path
@@ -47,3 +48,20 @@ if pkg_name not in sys.modules:
                 sub_spec.loader.exec_module(sub_mod)
             except Exception:
                 pass  # some modules may fail (e.g. engine needs agent)
+
+
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _isolate_from_host_lcm_environment(monkeypatch, tmp_path_factory):
+    """Never let a test reach the operator's live LCM database.
+
+    Host profiles export LCM_* settings such as LCM_DATABASE_PATH. Without
+    this fixture, tests that call LCMConfig.from_env() or register() would
+    open and write the live lcm.db while a gateway is using it.
+    """
+    for key in list(os.environ):
+        if key.startswith("LCM_"):
+            monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path_factory.mktemp("hermes-home")))
