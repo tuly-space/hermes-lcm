@@ -589,10 +589,7 @@ def test_plugin_entrypoint_registers_bundled_skill_and_active_lcm_recall_policy(
     first = policy_hook(session_id="active-session")
     second = policy_hook(session_id="active-session")
     assert first == second
-    assert first == {"context": module.get_recall_policy()}
-    assert "Hermes-LCM Recall Policy" in first["context"]
-    assert "lcm_recall" in first["context"]
-    assert "lcm_expand_query" in first["context"]
+    assert first is None  # Fixed guidance is system-prompt skill content.
     ctx.engine.shutdown()
 
 
@@ -658,10 +655,11 @@ def test_pre_llm_hook_disabled_toolset_is_identical_and_routed_adds_exact_sessio
         ],
     )
 
-    assert disabled == {"context": policy}
+    assert disabled is None
     assert active["context"].startswith(
-        policy + "\n\n[Hermes-LCM selective session evidence"
+        "[Hermes-LCM selective session evidence"
     ), ctx.engine._last_preanswer_evidence_trace
+    assert policy not in active["context"]
     assert "Denver" in active["context"]
     assert f"lcm:{current_id}:0-{len(current_text)}" in active["context"]
     trace = ctx.engine._last_preanswer_evidence_trace
@@ -708,7 +706,7 @@ def test_pre_llm_hook_ordinary_path_makes_no_recall_or_selector_call(
     )
 
     assert recall_calls == []
-    assert response == {"context": module.get_recall_policy()}
+    assert response is None
     assert not hasattr(ctx.engine, "_last_preanswer_evidence_trace")
     ctx.engine.shutdown()
 
@@ -873,8 +871,7 @@ def test_pre_llm_hook_selective_compiler_uses_existing_auxiliary_seam_and_fails_
         enabled_toolsets=["context_engine"],
         baseline_refs=refs,
     )
-    assert "lcm-selective-evidence" not in fallback["context"]
-    assert fallback["context"].startswith(module.get_recall_policy())
+    assert fallback is None  # No evidence means no user-message injection.
     ctx.engine.shutdown()
 
 
@@ -1053,8 +1050,8 @@ def test_pre_llm_hook_requirements_ordinary_and_disabled_toolset_are_byte_identi
         enabled_toolsets=[],
     )
 
-    assert ordinary == {"context": policy}
-    assert disabled == {"context": policy}
+    assert ordinary is None
+    assert disabled is None
     ctx.engine.shutdown()
 
 

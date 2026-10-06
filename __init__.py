@@ -439,14 +439,10 @@ def register(ctx):
                 exc,
             )
 
-        # Hermes invokes this hook after the context engine has received
-        # on_session_start(). Resolve through LCM's own registry so merely
-        # loading the plugin cannot inject guidance when another context
-        # engine is serving the turn. Capture one validated policy value for
-        # deterministic, byte-stable injection across eligible turns.
+        # Resolve the active engine after on_session_start, so dynamic evidence
+        # is emitted only for actual LCM turns. Fixed recall guidance lives in
+        # the auto-loaded skill, not in this user-message hook.
         try:
-            recall_policy = get_recall_policy()
-
             def _on_pre_llm_call(**payload):
                 session_id = str(payload.get("session_id") or "")
                 conversation_id = str(
@@ -460,7 +456,11 @@ def register(ctx):
                 )
                 if active_engine is None or getattr(active_engine, "name", None) != "lcm":
                     return None
-                return _pre_llm_context(active_engine, recall_policy, payload)
+                # Fixed guidance is pinned through skills.auto_load in the system
+                # prompt. Only genuine per-turn evidence belongs in this hook.
+                result = _pre_llm_context(active_engine, "", payload)
+                context = str(result.get("context") or "").strip()
+                return {"context": context} if context else None
 
             register_hook("pre_llm_call", _on_pre_llm_call)
         except Exception as exc:
