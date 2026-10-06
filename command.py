@@ -15,6 +15,7 @@ import sqlite3
 import time
 from typing import Any
 import uuid
+from . import profile_env as _profile_env
 
 from .db_bootstrap import (
     check_external_content_fts_integrity,
@@ -88,7 +89,7 @@ _EMBEDDING_BACKFILL_BATCH_SIZE = 32
 
 
 def _env_float(key: str, default: float) -> float:
-    raw = os.environ.get(key)
+    raw = _profile_env.environ.get(key)
     if raw is None:
         return default
     try:
@@ -2226,7 +2227,7 @@ def _preset_suggest_text(engine) -> str:
     explicit = explicit_operator_overrides()
     invalid = invalid_operator_overrides()
     invalid_text = ", ".join(
-        f"{env_var}={os.environ.get(env_var, '')}" for env_var in sorted(invalid.values())
+        f"{env_var}={_profile_env.environ.get(env_var, '')}" for env_var in sorted(invalid.values())
     ) if invalid else "(none)"
     lines.extend([
         f"suggested_preset: {preset.name}",

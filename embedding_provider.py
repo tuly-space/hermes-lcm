@@ -21,6 +21,7 @@ from email.utils import parsedate_to_datetime
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
+from . import profile_env as _profile_env
 
 from .config import LCMConfig
 from .tokens import count_tokens
@@ -611,7 +612,7 @@ class VoyageProvider(_ResilientProvider):
         the flat ``/v1/embeddings`` request unchanged and returns
         ``list[list[float]]`` ordered to ``texts``.
         """
-        api_key = os.environ.get("VOYAGE_API_KEY", "").strip()
+        api_key = _profile_env.environ.get("VOYAGE_API_KEY", "").strip()
         if not api_key:
             raise VoyageError("auth", "VOYAGE_API_KEY is not set")
         if payload is None:
@@ -1275,7 +1276,7 @@ class VoyageProvider(_ResilientProvider):
             return []
         budget = max(0.001, float(timeout))
         deadline = time.monotonic() + budget
-        api_key = os.environ.get("VOYAGE_API_KEY", "").strip()
+        api_key = _profile_env.environ.get("VOYAGE_API_KEY", "").strip()
         if not api_key:
             raise VoyageError("auth", "VOYAGE_API_KEY is not set")
         payload: dict[str, Any] = {

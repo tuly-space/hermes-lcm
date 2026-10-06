@@ -3,6 +3,7 @@
 Implements the ContextEngine ABC. Replaces the built-in ContextCompressor
 with a DAG-based summarization system that preserves every message.
 """
+from . import profile_env as _profile_env
 
 import asyncio
 import copy
@@ -1977,7 +1978,7 @@ class LCMEngine(CompactionMixin, ResetStateMixin, ReconcileMixin, AuxiliarySessi
 
     def _get_allowed_hermes_base(self) -> Path | None:
         """Get the allowed base directory for hermes_home, or None if not restricted."""
-        env_base = os.environ.get("LCM_HERMES_BASE_DIR")
+        env_base = _profile_env.environ.get("LCM_HERMES_BASE_DIR")
         if env_base:
             return Path(env_base).expanduser().resolve()
         return None  # No restriction when env var not set

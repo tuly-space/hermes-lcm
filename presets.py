@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field as dataclass_field
 import os
 from typing import Any, Mapping
+from . import profile_env as _profile_env
 
 from .config import ENV_FIELD_SPECS
 
@@ -174,7 +175,7 @@ def _valid_override_value(field: str, raw: str) -> bool:
 def explicit_operator_overrides(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     """Return parseable runtime preset fields explicitly set by LCM_* env vars."""
 
-    env = environ if environ is not None else os.environ
+    env = environ if environ is not None else _profile_env.environ
     return {
         field: env_var
         for field, env_var in _FIELD_ENV.items()
@@ -185,7 +186,7 @@ def explicit_operator_overrides(environ: Mapping[str, str] | None = None) -> dic
 def invalid_operator_overrides(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     """Return present but unparsable runtime preset env vars."""
 
-    env = environ if environ is not None else os.environ
+    env = environ if environ is not None else _profile_env.environ
     return {
         field: env_var
         for field, env_var in _FIELD_ENV.items()
@@ -248,7 +249,7 @@ def preset_env_diff(
 ) -> list[str]:
     """Render env-var changes a preset would suggest without applying them."""
 
-    env = environ if environ is not None else os.environ
+    env = environ if environ is not None else _profile_env.environ
     explicit = explicit_operator_overrides(env)
     invalid = invalid_operator_overrides(env)
     lines: list[str] = []
@@ -289,7 +290,7 @@ def _preset_dry_run_delta(
 ) -> list[dict[str, Any]]:
     """Return structured preset dry-run actions without mutating runtime state."""
 
-    env = environ if environ is not None else os.environ
+    env = environ if environ is not None else _profile_env.environ
     explicit = explicit_operator_overrides(env)
     invalid = invalid_operator_overrides(env)
     delta: list[dict[str, Any]] = []
@@ -344,7 +345,7 @@ def preset_status_payload(
 ) -> dict[str, Any]:
     """Return read-only, machine-readable preset suggestion metadata."""
 
-    env = environ if environ is not None else os.environ
+    env = environ if environ is not None else _profile_env.environ
     preset, reason = suggest_preset_for_engine(engine)
     explicit = explicit_operator_overrides(env)
     invalid = invalid_operator_overrides(env)

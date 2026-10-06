@@ -1,9 +1,18 @@
-"""LCM configuration with defaults and env var overrides."""
+"""LCM configuration with defaults and env var overrides.
+
+Every ``LCM_*`` value resolves through :mod:`profile_env`, scoped to the profile
+that registered this plugin copy, never another profile's process environment.
+"""
 import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+try:
+    from . import profile_env as _profile_env
+except ImportError:  # loaded as a top-level module (benchmarks, isolated tests)
+    import profile_env as _profile_env  # type: ignore[no-redef]
 
 try:
     import yaml
@@ -68,7 +77,7 @@ def _parse_arm_weights(raw: str, defaults: dict[str, float]) -> dict[str, float]
 
 
 def _parse_int_env(key: str, default: int) -> int:
-    raw = os.environ.get(key)
+    raw = _profile_env.environ.get(key)
     if raw is None:
         return default
     try:
@@ -78,7 +87,7 @@ def _parse_int_env(key: str, default: int) -> int:
 
 
 def _parse_float_env(key: str, default: float) -> float:
-    raw = os.environ.get(key)
+    raw = _profile_env.environ.get(key)
     if raw is None:
         return default
     try:
@@ -88,7 +97,7 @@ def _parse_float_env(key: str, default: float) -> float:
 
 
 def _parse_bool_env(key: str, default: bool) -> bool:
-    raw = os.environ.get(key)
+    raw = _profile_env.environ.get(key)
     if raw is None:
         return default
     normalized = raw.strip().lower()
@@ -100,7 +109,7 @@ def _parse_bool_env(key: str, default: bool) -> bool:
 
 
 def _parse_str_env(key: str, default):
-    return os.environ.get(key, default)
+    return _profile_env.environ.get(key, default)
 
 
 def _parse_int_env_with_source(
@@ -109,7 +118,7 @@ def _parse_int_env_with_source(
     *,
     default_source: str = "default",
 ) -> tuple[int, str, str | None]:
-    raw = os.environ.get(key)
+    raw = _profile_env.environ.get(key)
     if raw is None:
         return default, default_source, None
     try:
@@ -124,7 +133,7 @@ def _parse_float_env_with_source(
     *,
     default_source: str = "default",
 ) -> tuple[float, str, str | None]:
-    raw = os.environ.get(key)
+    raw = _profile_env.environ.get(key)
     if raw is None:
         return default, default_source, None
     try:
@@ -150,7 +159,7 @@ def _config_bool_disabled(value) -> bool:
 
 
 def _hermes_config_path() -> Path:
-    home = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
+    home = _profile_env.bound_home() or Path(_profile_env.environ.get("HERMES_HOME") or Path.home() / ".hermes")
     return home / "config.yaml"
 
 
@@ -852,38 +861,38 @@ class LCMConfig:
             setattr(c, spec.name, parser(spec.env_key, getattr(c, spec.name)))
 
         # Pattern-list overrides carry a source sidecar and stay explicit.
-        raw_sensitive_patterns = os.environ.get("LCM_SENSITIVE_PATTERNS")
+        raw_sensitive_patterns = _profile_env.environ.get("LCM_SENSITIVE_PATTERNS")
         if raw_sensitive_patterns is not None:
             c.sensitive_patterns = _parse_pattern_list(raw_sensitive_patterns)
             c.sensitive_patterns_source = "env"
-        raw_summary_fallback_models = os.environ.get("LCM_SUMMARY_FALLBACK_MODELS")
+        raw_summary_fallback_models = _profile_env.environ.get("LCM_SUMMARY_FALLBACK_MODELS")
         if raw_summary_fallback_models is not None:
             c.summary_fallback_models = _parse_pattern_list(raw_summary_fallback_models)
 
-        raw_max_age = os.environ.get("LCM_EMPTY_LIFECYCLE_GC_MAX_AGE_HOURS")
+        raw_max_age = _profile_env.environ.get("LCM_EMPTY_LIFECYCLE_GC_MAX_AGE_HOURS")
         if raw_max_age is not None:
             try:
                 c.empty_lifecycle_gc_max_age_hours = float(raw_max_age)
             except (TypeError, ValueError):
                 pass
 
-        raw_arm_weights = os.environ.get("LCM_RECALL_ARM_WEIGHTS")
+        raw_arm_weights = _profile_env.environ.get("LCM_RECALL_ARM_WEIGHTS")
         if raw_arm_weights is not None:
             c.recall_arm_weights = _parse_arm_weights(
                 raw_arm_weights, _DEFAULT_RECALL_ARM_WEIGHTS
             )
 
-        raw_ignore = os.environ.get("LCM_IGNORE_SESSION_PATTERNS")
+        raw_ignore = _profile_env.environ.get("LCM_IGNORE_SESSION_PATTERNS")
         if raw_ignore is not None:
             c.ignore_session_patterns = _parse_pattern_list(raw_ignore)
             c.ignore_session_patterns_source = "env"
 
-        raw_stateless = os.environ.get("LCM_STATELESS_SESSION_PATTERNS")
+        raw_stateless = _profile_env.environ.get("LCM_STATELESS_SESSION_PATTERNS")
         if raw_stateless is not None:
             c.stateless_session_patterns = _parse_pattern_list(raw_stateless)
             c.stateless_session_patterns_source = "env"
 
-        raw_ignore_messages = os.environ.get("LCM_IGNORE_MESSAGE_PATTERNS")
+        raw_ignore_messages = _profile_env.environ.get("LCM_IGNORE_MESSAGE_PATTERNS")
         if raw_ignore_messages is not None:
             c.ignore_message_patterns = _parse_pattern_list(raw_ignore_messages)
             c.ignore_message_patterns_source = "env"
