@@ -313,6 +313,7 @@ ENV_FIELD_SPECS: tuple[_EnvFieldSpec, ...] = (
     _EnvFieldSpec("fresh_tail_max_tokens", "LCM_FRESH_TAIL_MAX_TOKENS", int),
     _EnvFieldSpec("leaf_chunk_tokens", "LCM_LEAF_CHUNK_TOKENS", int),
     _EnvFieldSpec("context_threshold", "LCM_CONTEXT_THRESHOLD", float),
+    _EnvFieldSpec("automatic_summary_threshold_only", "LCM_AUTOMATIC_SUMMARY_THRESHOLD_ONLY", bool),
     _EnvFieldSpec("incremental_max_depth", "LCM_INCREMENTAL_MAX_DEPTH", int),
     _EnvFieldSpec("condensation_fanin", "LCM_CONDENSATION_FANIN", int),
     _EnvFieldSpec("dynamic_leaf_chunk_enabled", "LCM_DYNAMIC_LEAF_CHUNK_ENABLED", bool),
@@ -455,6 +456,8 @@ class LCMConfig:
     leaf_chunk_tokens: int = 20_000
     # Fraction of context window that triggers compaction (0.0–1.0)
     context_threshold: float = 0.35
+    # Opt in to threshold-only automatic summaries; cleanup remains deterministic.
+    automatic_summary_threshold_only: bool = False
     # Mirror Hermes Agent's Codex gpt-5.5 route-specific threshold auto-raise
     # when LCM is inheriting the host compression threshold. Explicit LCM
     # threshold overrides remain authoritative.
