@@ -330,8 +330,22 @@ class MessageStore:
     def __init__(self, db_path: str | Path, *, ingest_protection_config=None, hermes_home: str = ""):
         self.db_path = Path(db_path)
         self._is_memory_database = str(self.db_path) == ":memory:"
+        self._db_owner_ident = None
         if not self._is_memory_database:
+            # Claim the inode BEFORE touching the file: a foreign profile's copy
+            # must be refused before it opens a descriptor on a live database.
+            from . import db_owner, profile_env
+
+            bound = profile_env.bound_home()
+            self._db_owner_ident = db_owner.acquire(
+                self.db_path, str(bound) if bound is not None else (hermes_home or str(self.db_path.parent))
+            )
             _prepare_private_sqlite_storage(self.db_path)
+            if self._db_owner_ident is None:
+                # The file did not exist yet; claim the inode just created.
+                self._db_owner_ident = db_owner.acquire(
+                    self.db_path, str(bound) if bound is not None else (hermes_home or str(self.db_path.parent))
+                )
         self._ingest_protection_config = ingest_protection_config or LCMConfig(database_path=str(self.db_path))
         self._hermes_home = hermes_home or str(self.db_path.parent)
         self._conn: Optional[sqlite3.Connection] = None
@@ -1751,6 +1765,12 @@ class MessageStore:
                 pass  # best-effort only; don't let this mask the real close()
             conn.close()
             self._conn = None
+        ident = getattr(self, "_db_owner_ident", None)
+        if ident is not None:
+            from . import db_owner
+
+            self._db_owner_ident = None
+            db_owner.release(ident)
 
     def __del__(self) -> None:  # pragma: no cover - defensive resource cleanup
         try:

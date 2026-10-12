@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import sqlite3
+import contextvars
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -2822,7 +2823,9 @@ def _run_within_deadline(
         finally:
             slots.release()
 
-    worker = threading.Thread(target=invoke, name=name, daemon=True)
+    worker = threading.Thread(
+        target=contextvars.copy_context().run, args=(invoke,), name=name, daemon=True
+    )
     try:
         worker.start()
     except BaseException:
@@ -6504,6 +6507,7 @@ def lcm_status(args: Dict[str, Any], **kwargs) -> str:
             "threshold_full_sweep_max_passes": 12,
             "threshold_full_sweep_max_seconds": 120,
             "context_threshold": engine._config.context_threshold,
+            "automatic_summary_threshold_only": engine._config.automatic_summary_threshold_only,
             "max_depth": engine._config.incremental_max_depth,
             "condensation_fanin": engine._config.condensation_fanin,
             "summary_model": engine._config.summary_model or "(auxiliary)",

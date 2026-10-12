@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any
+from . import profile_env as _profile_env
 
 
 DOCTOR_ACTION_SAFE_IGNORE = "safe/ignore"
@@ -14,7 +15,7 @@ DOCTOR_ACTION_BACKUP_FIRST_CLEANUP = "backup-first cleanup"
 
 def _enforce_state_db_containment(path: Path, *, description: str) -> Path:
     resolved = path.expanduser().resolve()
-    env_base = os.environ.get("LCM_HERMES_BASE_DIR")
+    env_base = _profile_env.environ.get("LCM_HERMES_BASE_DIR")
     if env_base:
         allowed_base = Path(env_base).expanduser().resolve()
         try:

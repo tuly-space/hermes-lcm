@@ -23,7 +23,9 @@ def get_recall_policy() -> str:
 
 
 def _env_flag_enabled(name: str, default: bool = False) -> bool:
-    value = os.environ.get(name)
+    from .profile_env import environ as _profile_environ
+
+    value = _profile_environ.get(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -360,6 +362,36 @@ def _make_command_handler(handle_lcm_command, engine, resolve_active_lcm_engine)
     return _handler
 
 
+def _enforce_profile_owned_database(config, hermes_home: str) -> None:
+    """Refuse an LCM database that lives in ANOTHER Hermes profile's home.
+
+    A foreign database_path is the cross-profile leak that let two plugin copies
+    share one SQLite file in one process. Paths outside every Hermes home (for
+    example a container's /opt/data or a dedicated volume) stay allowed.
+    """
+    import logging
+
+    raw = str(getattr(config, "database_path", "") or "")
+    if not raw or not hermes_home:
+        return
+    try:
+        db = Path(raw).expanduser().resolve()
+        home = Path(hermes_home).expanduser().resolve()
+    except OSError:
+        return
+    if db == home or home in db.parents:
+        return
+    # Hermes layout: <root>/profiles/<name>. The root is the default profile's home.
+    root = home.parent.parent if home.parent.name == "profiles" else home
+    foreign = root == db.parent or (root / "profiles") in db.parents
+    if foreign:
+        logging.getLogger(__name__).error(
+            "LCM database %s belongs to another Hermes profile than %s; using %s instead",
+            db, home, home / "lcm.db",
+        )
+        config.database_path = str(home / "lcm.db")
+
+
 def register(ctx):
     """Plugin entry point — register the LCM context engine and tools."""
     from .config import LCMConfig
@@ -382,9 +414,10 @@ def register(ctx):
         LCM_DOCTOR,
     )
 
-    config = LCMConfig.from_env()
-
-    # Resolve hermes_home for profile-scoped storage
+    # Resolve hermes_home for profile-scoped storage. Bind it BEFORE reading
+    # any LCM_* setting: under a multiplexing gateway (or any gateway's cron
+    # ticker) several profiles' copies of this plugin share one process, and
+    # os.environ only holds the launch profile's .env.
     hermes_home = ""
     try:
         from hermes_cli.config import get_hermes_home
@@ -392,6 +425,12 @@ def register(ctx):
     except Exception:
         import os
         hermes_home = os.environ.get("HERMES_HOME", os.path.expanduser("~/.hermes"))
+
+    from . import profile_env
+
+    profile_env.bind_home(hermes_home)
+    config = LCMConfig.from_env()
+    _enforce_profile_owned_database(config, hermes_home)
 
     engine = LCMEngine(config=config, hermes_home=hermes_home)
 
@@ -439,14 +478,10 @@ def register(ctx):
                 exc,
             )
 
-        # Hermes invokes this hook after the context engine has received
-        # on_session_start(). Resolve through LCM's own registry so merely
-        # loading the plugin cannot inject guidance when another context
-        # engine is serving the turn. Capture one validated policy value for
-        # deterministic, byte-stable injection across eligible turns.
+        # Resolve the active engine after on_session_start, so dynamic evidence
+        # is emitted only for actual LCM turns. Fixed recall guidance lives in
+        # the auto-loaded skill, not in this user-message hook.
         try:
-            recall_policy = get_recall_policy()
-
             def _on_pre_llm_call(**payload):
                 session_id = str(payload.get("session_id") or "")
                 conversation_id = str(
@@ -460,7 +495,11 @@ def register(ctx):
                 )
                 if active_engine is None or getattr(active_engine, "name", None) != "lcm":
                     return None
-                return _pre_llm_context(active_engine, recall_policy, payload)
+                # Fixed guidance is pinned through skills.auto_load in the system
+                # prompt. Only genuine per-turn evidence belongs in this hook.
+                result = _pre_llm_context(active_engine, "", payload)
+                context = str(result.get("context") or "").strip()
+                return {"context": context} if context else None
 
             register_hook("pre_llm_call", _on_pre_llm_call)
         except Exception as exc:

@@ -137,6 +137,9 @@ class CompactionMixin:
                 return self._mark_preflight_compression_requested()
             if force_overflow_requested:
                 return self._mark_preflight_compression_requested()
+            if self._config.automatic_summary_threshold_only and (self.threshold_tokens <= 0 or rough < self.threshold_tokens):
+                self._refresh_raw_backlog_debt(replay_messages, observed_tokens=rough)
+                return False
             # A boundary skip cools down summary-producing leaf/condensation
             # work. It must not prevent the host from adopting a replay cleanup
             # that ingest has already made durable (for example a live tool
@@ -197,6 +200,8 @@ class CompactionMixin:
             logger.info("LCM preflight compression no-op: %s", reason)
             return False
         self._refresh_raw_backlog_debt(messages, observed_tokens=rough)
+        if self._config.automatic_summary_threshold_only:
+            return False
         if self._should_run_deferred_maintenance(messages, observed_tokens=rough):
             return self._mark_preflight_compression_requested()
         return False
@@ -404,6 +409,11 @@ class CompactionMixin:
             )
 
         observed_prompt_tokens = current_tokens if current_tokens is not None else None
+        # Prefer the host's complete request pressure, never stale previous usage.
+        summary_pressure_tokens = (
+            current_tokens if current_tokens is not None and current_tokens > 0
+            else count_messages_tokens(messages)
+        )
         force_overflow = self._should_force_overflow_recovery(
             observed_tokens=observed_prompt_tokens,
             messages=messages,
@@ -431,9 +441,16 @@ class CompactionMixin:
         cleanup_only_due_to_boundary_cooldown = bool(
             self._preflight_cleanup_only_due_to_boundary_cooldown
             and not force_overflow
+            and not force
         )
         self._preflight_cleanup_only_due_to_boundary_cooldown = False
-        if cleanup_only_due_to_boundary_cooldown:
+        below_summary_threshold = bool(
+            self._config.automatic_summary_threshold_only
+            and not force
+            and not force_overflow
+            and (self.threshold_tokens <= 0 or summary_pressure_tokens < self.threshold_tokens)
+        )
+        if cleanup_only_due_to_boundary_cooldown or below_summary_threshold:
             sanitized_messages = self._sanitize_active_context_messages(
                 working_messages,
                 insert_missing_tool_stubs=False,
@@ -443,6 +460,10 @@ class CompactionMixin:
                 observed_tokens=observed_prompt_tokens,
             )
             self._ingest_cursor = len(sanitized_messages)
+            if below_summary_threshold and sanitized_messages == messages:
+                self._last_compression_status = "noop"
+                self._last_compression_noop_reason = "below automatic summary threshold"
+                return messages
             self._last_compression_status = "sanitized"
             self._last_compression_noop_reason = ""
             self._write_generated_ignored_placeholder_hash_counts(
@@ -454,6 +475,10 @@ class CompactionMixin:
                 self._generated_placeholder_digest_ordinals_for_active_replay(
                     sanitized_messages
                 )
+            )
+            logger.info(
+                "LCM deterministic cleanup only: request_tokens=%d threshold=%d; no summary call",
+                summary_pressure_tokens, self.threshold_tokens,
             )
             return sanitized_messages
         anchor_source_messages = list(working_messages)

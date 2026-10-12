@@ -14,10 +14,12 @@ import os
 import re
 import shutil
 import sqlite3
+import contextvars
 import threading
 import time
 from contextlib import contextmanager
 from typing import Iterable, Sequence
+from . import profile_env as _profile_env
 
 logger = logging.getLogger(__name__)
 
@@ -2451,7 +2453,7 @@ def _integrity_check_interval_hours() -> float:
     ``0`` checks on every startup (previous behavior); a negative value never
     checks on startup (relies on structural checks + LIKE fallback + doctor).
     """
-    raw = os.environ.get(INTEGRITY_CHECK_INTERVAL_ENV)
+    raw = _profile_env.environ.get(INTEGRITY_CHECK_INTERVAL_ENV)
     if raw is None:
         return DEFAULT_INTEGRITY_CHECK_INTERVAL_HOURS
     try:
@@ -2543,7 +2545,7 @@ _integrity_scan_threads: dict[tuple[str, str], threading.Thread] = {}
 def _background_integrity_enabled() -> bool:
     """Kill-switch: ``LCM_FTS_INTEGRITY_BACKGROUND=false`` restores the exact old
     synchronous integrity-check behavior on the startup path."""
-    raw = os.environ.get(BACKGROUND_INTEGRITY_ENV)
+    raw = _profile_env.environ.get(BACKGROUND_INTEGRITY_ENV)
     if raw is None:
         return True
     return raw.strip().lower() not in ("0", "false", "no", "off")
@@ -2766,8 +2768,8 @@ def _dispatch_background_integrity_scan(
             pass
 
         thread = threading.Thread(
-            target=_run_background_integrity_scan,
-            args=(db_path, spec, current),
+            target=contextvars.copy_context().run,
+            args=(_run_background_integrity_scan, db_path, spec, current),
             name=f"lcm-fts-integrity-{spec.table_name}",
             daemon=True,
         )

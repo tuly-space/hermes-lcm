@@ -3,6 +3,7 @@
 Implements the ContextEngine ABC. Replaces the built-in ContextCompressor
 with a DAG-based summarization system that preserves every message.
 """
+from . import profile_env as _profile_env
 
 import asyncio
 import copy
@@ -12,6 +13,7 @@ import logging
 import os
 import re
 import sqlite3
+import contextvars
 import threading
 import time
 from collections import deque
@@ -144,6 +146,22 @@ from . import tools as lcm_tools
 
 logger = logging.getLogger(__name__)
 
+
+def _bind_caller_context(job: "Callable[[], None]") -> "Callable[[], None]":
+    """Run ``job`` later in a copy of the scheduling thread's context.
+
+    A new ``threading.Thread`` starts with an empty context. Hermes keeps the
+    active profile (HERMES_HOME override, secret scope) in context variables,
+    so an unbound background job would read the gateway's default profile.
+    """
+    context = contextvars.copy_context()
+
+    def run() -> None:
+        context.run(job)
+
+    return run
+
+
 _ASSERTION_EXTRACTION_PROCESS_SLOT = threading.BoundedSemaphore(1)
 
 class _RollupMaintenanceScheduler:
@@ -208,6 +226,10 @@ class _RollupMaintenanceScheduler:
         *,
         owner: object | None = None,
     ) -> bool:
+        # The worker thread is shared and long-lived; each job carries the
+        # caller's context so it resolves the caller's Hermes profile
+        # (config, secrets, auth) in a multiplexed gateway.
+        job = _bind_caller_context(job)
         with self._condition:
             if key in self._exclusive_keys:
                 logger.info(
@@ -1977,7 +1999,7 @@ class LCMEngine(CompactionMixin, ResetStateMixin, ReconcileMixin, AuxiliarySessi
 
     def _get_allowed_hermes_base(self) -> Path | None:
         """Get the allowed base directory for hermes_home, or None if not restricted."""
-        env_base = os.environ.get("LCM_HERMES_BASE_DIR")
+        env_base = _profile_env.environ.get("LCM_HERMES_BASE_DIR")
         if env_base:
             return Path(env_base).expanduser().resolve()
         return None  # No restriction when env var not set
@@ -5059,8 +5081,11 @@ class LCMEngine(CompactionMixin, ResetStateMixin, ReconcileMixin, AuxiliarySessi
             self._assertion_extraction_sources_scheduled += len(snapshots)
         self._assertion_extraction_idle.clear()
         worker = threading.Thread(
-            target=self._run_assertion_extraction_batch,
-            args=(str(self._store.db_path), tuple(snapshots), model, timeout_seconds),
+            target=contextvars.copy_context().run,
+            args=(
+                self._run_assertion_extraction_batch,
+                str(self._store.db_path), tuple(snapshots), model, timeout_seconds,
+            ),
             name="lcm-assertion-extraction",
             daemon=True,
         )

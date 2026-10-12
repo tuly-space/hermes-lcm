@@ -20,6 +20,7 @@ import stat
 import time
 from pathlib import Path
 from typing import Any, BinaryIO, Dict
+from . import profile_env as _profile_env
 
 DEFAULT_LARGE_OUTPUT_DIRNAME = "lcm-large-outputs"
 _EXTERNALIZED_REF_RE = re.compile(
@@ -146,7 +147,7 @@ def get_large_output_storage_dir(config, hermes_home: str = "", *, create: bool)
     if configured:
         path = Path(configured).expanduser().resolve()
         # Check containment for configured paths when LCM_HERMES_BASE_DIR is set
-        env_base = os.environ.get("LCM_HERMES_BASE_DIR")
+        env_base = _profile_env.environ.get("LCM_HERMES_BASE_DIR")
         if env_base:
             allowed_base = Path(env_base).expanduser().resolve()
             try:
@@ -168,7 +169,7 @@ def get_large_output_storage_dir(config, hermes_home: str = "", *, create: bool)
         path = base / DEFAULT_LARGE_OUTPUT_DIRNAME
         # Check containment within allowed base for default/hermes_home-based paths
         # Only enforced when LCM_HERMES_BASE_DIR is explicitly set
-        env_base = os.environ.get("LCM_HERMES_BASE_DIR")
+        env_base = _profile_env.environ.get("LCM_HERMES_BASE_DIR")
         if env_base:
             allowed_base = Path(env_base).expanduser().resolve()
             try:
