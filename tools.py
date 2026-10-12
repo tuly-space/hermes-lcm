@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import sqlite3
+import contextvars
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -2822,7 +2823,9 @@ def _run_within_deadline(
         finally:
             slots.release()
 
-    worker = threading.Thread(target=invoke, name=name, daemon=True)
+    worker = threading.Thread(
+        target=contextvars.copy_context().run, args=(invoke,), name=name, daemon=True
+    )
     try:
         worker.start()
     except BaseException:

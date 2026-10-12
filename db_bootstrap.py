@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import sqlite3
+import contextvars
 import threading
 import time
 from contextlib import contextmanager
@@ -2767,8 +2768,8 @@ def _dispatch_background_integrity_scan(
             pass
 
         thread = threading.Thread(
-            target=_run_background_integrity_scan,
-            args=(db_path, spec, current),
+            target=contextvars.copy_context().run,
+            args=(_run_background_integrity_scan, db_path, spec, current),
             name=f"lcm-fts-integrity-{spec.table_name}",
             daemon=True,
         )

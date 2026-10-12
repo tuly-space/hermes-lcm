@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import queue
+import contextvars
 import threading
 import time
 import urllib.error
@@ -299,7 +300,10 @@ def _run_blocking_with_deadline(
             worker_slots.release()
 
     worker = threading.Thread(
-        target=run, name=f"lcm-{provider.lower()}-embedding", daemon=True
+        target=contextvars.copy_context().run,
+        args=(run,),
+        name=f"lcm-{provider.lower()}-embedding",
+        daemon=True,
     )
     try:
         worker.start()
