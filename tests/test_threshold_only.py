@@ -106,7 +106,8 @@ def test_host_maintenance_passes_full_request_pressure(make_engine, monkeypatch)
         {'role':'assistant','content':'Read archive','tool_calls':[{'id':'call-a','type':'function','function':{'name':'read_file','arguments':'{}'}}]},
         {'role':'tool','tool_call_id':'call-a','content':'text result ' * 5000}]
     spy = spy_summary(monkeypatch)
-    def host_compress(messages, system, approx_tokens, task_id):
+    def host_compress(messages, system, approx_tokens, task_id, trigger=None):
+        # Hermes core passes trigger= since 4c7ab8b2a0 (attempt telemetry); older cores omit it.
         assert approx_tokens == 217600
         return e.compress(messages, current_tokens=approx_tokens), system
     host = SimpleNamespace(_compress_context=host_compress)
